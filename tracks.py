@@ -6,6 +6,36 @@ import numpy as np
 from pandas import DataFrame
 from pandas import *
 from matplotlib import pyplot as plt
+import time
+
+
+def exclude_different_tracks(source_tracker_groups, dest_tracker_groups):
+    unique_source_ids = source_tracker_groups[2].unique()
+    unique_dest_ids = dest_tracker_groups[2].unique()
+    diff_list = unique_source_ids - unique_dest_ids
+    source_tracker_groups = source_tracker_groups[source_tracker_groups[2] != diff_list]
+    dest_tracker_groups = source_tracker_groups[source_tracker_groups[2] != diff_list]
+    return source_tracker_groups, dest_tracker_groups
+
+
+def cluster_tracks(tracker_groups):
+    for tracker_group in tracker_groups:
+        X = np.array(to_datetime(tracker_group[1][1]).astype(int) / 10 ** 9).reshape(-1, 1)
+        db = DBSCAN(eps=3600, min_samples=10).fit(X)
+        core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
+        core_samples_mask[db.core_sample_indices_] = True
+        labels = db.labels_
+        # Number of clusters in labels, ignoring noise if present.
+        n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
+        n_noise_ = list(labels).count(-1)
+        print('Estimated number of clusters: %d' % n_clusters_)
+        print('Estimated number of noise points: %d' % n_noise_)
+        first_index = tracker_group[1].index[0]
+        labels_dataframe = DataFrame(db.labels_)
+        labels_dataframe.index = labels_dataframe.index + first_index
+        points_with_cluster = tracker_group[1].merge(labels_dataframe, left_index=True, right_index=True)
+        return points_with_cluster
+
 
 conn = psycopg2.connect(dbname='tracker-server', user='postgres', password='postgres', host='192.168.23.165')
 cursor = conn.cursor()
@@ -15,36 +45,8 @@ df = DataFrame(cursor.fetchall())
 cursor.close()
 conn.close()
 
-df_grouped_by_id = df.groupby(0).get_group('18308412')
-X = np.array(to_datetime(df_grouped_by_id[1]).astype(int) / 10 ** 9).reshape(-1, 1)
-# clustering = OPTICS(max_eps=3600, min_samples=10).fit(time_series_array)
-# print(clustering.labels_)
-
-import time
-
 start = time.time()
 
-db = DBSCAN(eps=3600, min_samples=10).fit(X)
-core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
-core_samples_mask[db.core_sample_indices_] = True
-labels = db.labels_
-
+cluster_tracks(df.groupby(0))
 end = time.time()
-print(end - start)
-
-# Number of clusters in labels, ignoring noise if present.
-n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
-n_noise_ = list(labels).count(-1)
-
-print('Estimated number of clusters: %d' % n_clusters_)
-print('Estimated number of noise points: %d' % n_noise_)
-
-first_index = df_grouped_by_id.index[0]
-labels_dataframe = DataFrame(db.labels_)
-labels_dataframe.index = labels_dataframe.index + first_index
-points_with_cluster = df_grouped_by_id.merge(labels_dataframe, left_index=True, right_index=True)
-
-print(points_with_cluster)
-
-
-# git remote add origin git@github.com:iPave/route_statistics.git
+print('Total clustering time is: %d ' % (end - start))
