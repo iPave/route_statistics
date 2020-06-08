@@ -1,9 +1,10 @@
+import asyncio
 import json
 import time
 from collections import defaultdict
 
 import numpy as np
-import psycopg2
+from databases import Database
 from pandas import *
 from sklearn.cluster import DBSCAN
 
@@ -16,19 +17,23 @@ class TracksDetector:
         self.destination_geo_zone = destination_geo_zone
         self.track_length = track_length
 
-    def detect(self):
+    def detect(self, loop):
         request_start = time.time()
 
-        conn = psycopg2.connect(dbname='tracker-server', user='postgres', password='postgres', host='192.168.23.165')
-        cursor = conn.cursor()
-        source_tracker_groups = self.db_request(cursor, self.source_geo_zone)
-        dest_tracker_groups = self.db_request(cursor, self.destination_geo_zone)
-        cursor.close()
+        gaher_results = asyncio.gather(self.as_db_request(self.source_geo_zone),
+                                       self.as_db_request(self.destination_geo_zone))
+
+        result = loop.run_until_complete(gaher_results)
+
+        loop.close()
 
         request_end = time.time()
         print('Total request time is: %d ' % (request_end - request_start))
         start = time.time()
 
+        source_tracker_groups, dest_tracker_groups = result[0].rename(
+            columns={'tracker_id': 'tracker_id', 'measurement_time': 'date', 'point': 'geography'}), result[1].rename(
+            columns={'tracker_id': 'tracker_id', 'measurement_time': 'date', 'point': 'geography'})
         source_tracker_groups, dest_tracker_groups = self.exclude_different_tracks(source_tracker_groups,
                                                                                    dest_tracker_groups)
         source_clustered_tracks = self.cluster_tracks(source_tracker_groups.groupby('tracker_id'))
@@ -75,6 +80,13 @@ class TracksDetector:
         geo_zone_data_frame = DataFrame(cursor.fetchall(), columns=['tracker_id', 'date', 'geography'])
 
         return geo_zone_data_frame
+
+    async def as_db_request(self, geo_zone):
+        database = Database('postgresql://postgres:postgres@192.168.23.165/tracker-server')
+        await database.connect()
+        query = "select  tracker_id, measurement_time, point from points p where  St_intersects(point, ST_SetSRID(st_geomfromgeojson(:geo_zone), 4326)) order by tracker_id, measurement_time"
+        values = {"geo_zone": json.dumps(geo_zone)}
+        return DataFrame(await database.fetch_all(query=query, values=values))
 
     def build_tracks(self, source_clustered_tracks, dest_clustered_tracks, track_length, daily_length):
         source_clustered_tracks = source_clustered_tracks[source_clustered_tracks['cluster_id'] != -1]

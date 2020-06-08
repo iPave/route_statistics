@@ -1,3 +1,5 @@
+import asyncio
+
 from flask import Flask, jsonify, request
 from flask_expects_json import expects_json
 
@@ -28,14 +30,14 @@ schema = {
 @expects_json(schema)
 def register():
     try:
-        # asyncio.set_event_loop(asyncio.new_event_loop())
-        # loop = asyncio.get_event_loop()
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        loop = asyncio.get_event_loop()
         geo_request = request.get_json()
         track_length = geo_request['track_length']
         source_geo_zone = geo_request['geozone1']
         destination_geo_zone = geo_request['geozone2']
         tracks_detector = TracksDetector(source_geo_zone, destination_geo_zone, track_length)
-        detection_id = tracks_detector.detect()
+        detection_id = tracks_detector.detect(loop)
     except Exception as e:
         return jsonify(dict(message=e)), 409
 
