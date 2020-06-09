@@ -2,6 +2,9 @@ import asyncio
 import json
 import time
 from collections import defaultdict
+# from multiprocessing import Manager
+# from threading import Thread
+import uuid
 
 import numpy as np
 from databases import Database
@@ -36,12 +39,32 @@ class TracksDetector:
             columns={'tracker_id': 'tracker_id', 'measurement_time': 'date', 'point': 'geography'})
         source_tracker_groups, dest_tracker_groups = self.exclude_different_tracks(source_tracker_groups,
                                                                                    dest_tracker_groups)
+
+        # todo threaded and multiprocessed version works slower the sequential
+        # manager = Manager()
+        # returned_clusters = manager.dict()
+        # p1 = Thread(target=self.cluster_tracks,
+        #              args=(0, source_tracker_groups.groupby('tracker_id'), returned_clusters))
+        # p1.start()
+        # p2 = Thread(target=self.cluster_tracks, args=(1, dest_tracker_groups.groupby('tracker_id'), returned_clusters))
+        # p2.start()
+        # p1.join()
+        # p2.join()
+        #
+        # source_clustered_tracks = returned_clusters[0]
+        # dest_clustered_tracks = returned_clusters[1]
+
         source_clustered_tracks = self.cluster_tracks(source_tracker_groups.groupby('tracker_id'))
         dest_clustered_tracks = self.cluster_tracks(dest_tracker_groups.groupby('tracker_id'))
         end = time.time()
         print('Total clustering time is: %d ' % (end - start))
 
-        return self.build_tracks(source_clustered_tracks, dest_clustered_tracks, self.track_length, self.DAILY_RUN)
+        tracks = self.build_tracks(source_clustered_tracks, dest_clustered_tracks, self.track_length, self.DAILY_RUN)
+        if not tracks:
+            return ''
+        tracks_uuid = uuid.uuid4()
+        self.save_tracks(tracks_uuid, tracks)
+        return tracks
 
     def exclude_different_tracks(self, source_tracker_groups, dest_tracker_groups):
         unique_source_ids = source_tracker_groups['tracker_id'].unique()
@@ -72,6 +95,29 @@ class TracksDetector:
             points_with_clusters = points_with_clusters.append(points_with_cluster)
 
         return points_with_clusters
+
+    def cluster_tracks_threaded(self, proc_id, tracker_groups, returned_clusters):
+        points_with_clusters = DataFrame(columns=['tracker_id', 'date', 'geography', 'cluster_id'])
+        for tracker_group in tracker_groups:
+            print(proc_id)
+            X = np.array(to_datetime(tracker_group[1]['date']).astype(int) / 10 ** 9).reshape(-1, 1)
+            db = DBSCAN(eps=3600, min_samples=10).fit(X)
+            core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
+            core_samples_mask[db.core_sample_indices_] = True
+            labels = db.labels_
+            # Number of clusters in labels, ignoring noise if present.
+            n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
+            n_noise_ = list(labels).count(-1)
+            print('Estimated number of clusters: %d' % n_clusters_)
+            print('Estimated number of noise points: %d' % n_noise_)
+            first_index = tracker_group[1].index[0]
+            labels_dataframe = DataFrame(db.labels_)
+            labels_dataframe.index = labels_dataframe.index + first_index
+            points_with_cluster = tracker_group[1].merge(labels_dataframe, left_index=True, right_index=True).rename(
+                columns={0: "cluster_id"})
+            points_with_clusters = points_with_clusters.append(points_with_cluster)
+
+        returned_clusters[proc_id] = points_with_clusters
 
     def db_request(self, cursor, geo_zone):
         cursor.execute(
@@ -114,3 +160,6 @@ class TracksDetector:
                             [source_cluster_last_time_sec, dest_cluster_first_time_sec])
 
         return possible_pairs
+
+    def save_tracks(self, uuid, tracks):
+        pass

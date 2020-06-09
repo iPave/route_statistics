@@ -3,7 +3,7 @@ import asyncio
 from flask import Flask, jsonify, request
 from flask_expects_json import expects_json
 
-from tracks import TracksDetector
+from tracks_new_query import TracksDetector
 
 app = Flask(__name__)
 
