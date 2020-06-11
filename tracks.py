@@ -22,12 +22,8 @@ class TracksDetector:
     def detect(self):
 
         request_start = time.time()
-        conn = psycopg2.connect(dbname='tracker-server', user='postgres', password='postgres', host='192.168.23.165')
+        conn = psycopg2.connect(dbname='tracker-server', user='postgres', password='postgres', host='localhost')
         cursor = conn.cursor()
-        # argslist = [('1', '2', str(datetime.utcfromtimestamp(1561092382)), str(datetime.utcfromtimestamp(1562092382))),
-        #             ('1', '2', str(datetime.utcfromtimestamp(1561092282)), str(datetime.utcfromtimestamp(1561092312)))]
-        # execute_values(cursor, "insert into geo_zone_tracks (id, tracker_id, time_from, time_to) values  %s", argslist)
-
         response = self.db_request(cursor, self.source_geo_zone, self.destination_geo_zone)
         request_end = time.time()
         print('Total request time is: %d ' % (request_end - request_start))
@@ -45,7 +41,9 @@ class TracksDetector:
             return ''
         tracks_uuid = uuid.uuid4()
         self.save_tracks(cursor, tracks_uuid, tracks)
+        conn.commit()
         cursor.close()
+        conn.close()
         return tracks_uuid
 
     def exclude_different_tracks(self, source_tracker_groups: DataFrame, dest_tracker_groups: DataFrame):
