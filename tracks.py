@@ -24,6 +24,7 @@ class TracksDetector:
         request_start = time.time()
         conn = psycopg2.connect(dbname='tracker-server', user='postgres', password='postgres', host='localhost')
         cursor = conn.cursor()
+        cursor.execute("SET TIMEZONE='GMT'")
         response = self.db_request(cursor, self.source_geo_zone, self.destination_geo_zone)
         request_end = time.time()
         print('Total request time is: %d ' % (request_end - request_start))
