@@ -143,8 +143,7 @@ class TracksDetector:
         for tracker_id, grouped_tracks in tracks.items():
             for track in grouped_tracks:
                 argslist.append(
-                    (str(uuid), tracker_id, str(datetime.utcfromtimestamp(track[0])),
-                     str(datetime.utcfromtimestamp(track[1]))))
+                    {"id": str(uuid), "tracker_id": tracker_id, "time_from": str(datetime.utcfromtimestamp(track[0])),
+                     "time_to": str(datetime.utcfromtimestamp(track[1]))})
 
-        print(execute_values(cursor, "insert into geo_zone_tracks (id, tracker_id, time_from, time_to) values  %s",
-                             argslist))
+        cursor.executemany("insert into geo_zone_tracks (id, tracker_id, time_from, time_to, track) values (%(id)s,  %(tracker_id)s, %(time_from)s,  %(time_to)s, (select st_makeline(p.point order by p.measurement_time) from points p where p.tracker_id=%(tracker_id)s and p.measurement_time between %(time_from)s and %(time_to)s group by p.tracker_id))", argslist)
